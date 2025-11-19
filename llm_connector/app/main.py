@@ -20,10 +20,6 @@ handler = logging.StreamHandler()
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
-class Question(BaseModel):
-    """Esquema para la pregunta del usuario."""
-    prompt: str
-
 class Response(BaseModel):
     """Esquema para la respuesta del LLM."""
     answer: str
@@ -86,6 +82,7 @@ def chat(message: dict, history: list) -> str:
             messages=messages
         )
         response_content = resp.choices[0].message.content
+        logging.info(json.dumps({"event": "response_sent", "answer_length": len(response_content)}))
         print("Respuesta recibida del modelo, ", response_content)
 
         if not response_content:
@@ -104,11 +101,3 @@ def chat(message: dict, history: list) -> str:
         #return f"❌ **Error Inesperado**: Ocurrió un problema técnico: {str(e)[:200]}..."
         
     return response_content
-# def query(request: dict):
-#     logger.info(json.dumps({"level":"INFO","service":"llm","msg":"received_query"}))
-#     try:
-#         resp = chat(request)
-#         return {"answer": resp}
-#     except Exception as e:
-#         logger.error(json.dumps({"level":"ERROR","service":"llm","error":str(e)}))
-#         raise HTTPException(status_code=500, detail="LLM error")
