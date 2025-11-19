@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # Servicio de Registro MLOps
+  mlflow_server:
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: mlflow_server
+    ports:
+      - "5000:5000"
+    environment:
+      # Usamos el path del contenedor para el volumen
+      - MLFLOW_TRACKING_URI=http://mlflow_server:5000
+    volumes:
+      # Volúmenes persistentes para el registro y artefactos
+      - ./mlflow_data:/mlflow/mlruns
+    networks:
+      - mlops_net
+
+  # 1. Conector LLM
+  connector_llm:
+    build: ./connector_llm
+    container_name: connector_llm
+    ports:
+      - "8001:8000"
+    environment:
+      - PORT=8000
+    networks:
+      - mlops_net
+
+  # 2. Modelo ML Clásico
+  ml_classic_model:
+    build: ./ml_classic_model
+    container_name: ml_classic_model
+    ports:
+      - "8002:8000"
+    environment:
+      - PORT=8000
+      # Conexión al servidor de MLflow
+      - MLFLOW_TRACKING_URI=http://mlflow_server:5000
+    depends_on:
+      - mlflow_server
+    volumes:
+      # Para leer/escribir artefactos si se requiere (alternativa a MLflow remote storage)
+      - ./mlflow_data:/mlflow_data
+    networks:
+      - mlops_net
+
+  # 3. Red Neuronal Convolucional (CNN)
+  cnn_model:
+    build: ./cnn_model
+    container_name: cnn_model
+    ports:
+      - "8003:8000"
+    environment:
+      - PORT=8000
+    networks:
+      - mlops_net
+
+  # 4. Aplicación Gradio (Frontend)
+  gradio_frontend:
+    build: ./gradio_frontend
+    container_name: gradio_frontend
+    ports:
+      - "8000:7860"
+    environment:
+      - LLM_API_URL=http://connector_llm:8000
+      - ML_API_URL=http://ml_classic_model:8000
+      - CNN_API_URL=http://cnn_model:8000
+    depends_on:
+      - connector_llm
+      - ml_classic_model
+      - cnn_model
+    networks:
+      - mlops_net
+
+networks:
+  mlops_net:
+    driver: bridge

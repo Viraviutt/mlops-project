@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pkl
+.env
+infra/mlflow/mlflow.db
+/models/
+.vscode/
+.envrc
+.DS_Store
+/venv/
+/models/
+/mlruns/
+/mlflow.db
+
+
+# Docker
+docker-compose.override.yml
