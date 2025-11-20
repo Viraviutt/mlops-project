@@ -1,18 +1,23 @@
-# 1. Empezar desde una imagen base de Python
-FROM python:3.10-slim
+# Stage 1: Builder
+FROM python:3.10-slim as builder
 
-# Directorio de trabajo dentro del contenedor
 WORKDIR /app
 
-# Copiamos el archivo de requerimientos para la instalacion de las dependencias
 COPY requirements.txt .
-
-# Ejecutamos comando para instalar las dependencias
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 7. Copiar el código de la aplicación
-# (Asume que 'app.py' está en el mismo directorio que este Dockerfile)
-COPY app.py .
+# Stage 2: Final
+FROM python:3.10-slim
 
-# 8. Exponer el puerto de Gradio
+WORKDIR /gradio_app
+
+# Copiar dependencias y código
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY requirements.txt .
+COPY app.py config.py ./
+
+# Exponer el puerto de Gradio
 EXPOSE 7860
+
+# Comando de ejecución
+CMD ["python", "app.py"]
