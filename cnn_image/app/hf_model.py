@@ -1,6 +1,13 @@
+"""
+    Archivo: hf_model.py
+    Propósito: Clase para consumir un modelo de clasificación de imágenes en HuggingFace.
+    Autor: Victor Villarreal, Cristian Garcia
+    Fecha: 2025-11-18
+"""
+
 from typing import Dict, Any, List
 from huggingface_hub import InferenceClient
-from .config import HF_TOKEN, HF_CNN_MODEL
+from config import HF_TOKEN, HF_CNN_MODEL
 
 class HuggingFaceCNNClassifier:
     """
@@ -59,5 +66,5 @@ class HuggingFaceCNNClassifier:
             return {"error": str(e)}
 
 
-# Instancia global (como en train.py original)
+# Instancia global
 hf_cnn_model = HuggingFaceCNNClassifier()
