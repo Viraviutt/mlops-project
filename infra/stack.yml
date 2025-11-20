@@ -1,9 +1,7 @@
 version: '3.8'
 
 services:
-  # ----------------------------------------
-  # 1. SERVIDOR MLFLOW (TRACKING Y REGISTRY)
-  # ----------------------------------------
+
   mlflow_db:
     image: postgres:15-alpine
     container_name: mlflow_postgres
@@ -29,7 +27,6 @@ services:
         --backend-store-uri postgresql://mlflow_user:mlflow_password@mlflow_db:5432/mlflow_db
         --default-artifact-root /mlflow_artifacts
         --host 0.0.0.0
-        --allowed-hosts "*"
       
       ports:
         - "5000:5000"
@@ -49,11 +46,8 @@ services:
         restart_policy:
           condition: on-failure
 
-    # ----------------------------------------
-    # 2. MODELO ML (Sklearn/Wine Quality)
-    # ----------------------------------------
   sklearn_model:
-    image: infra-sklearn_model:latest # Imagen del backend ML
+    image: infra-sklearn_model:latest
     container_name: sklearn_model
     build:
       context: ../sklearn_model
@@ -64,16 +58,13 @@ services:
     networks:
       - ml_network
     deploy:
-      replicas: 2 # Alta disponibilidad y escalabilidad
+      replicas: 2
       update_config:
         parallelism: 1
         delay: 10s
       restart_policy:
         condition: on-failure
 
-    # ----------------------------------------
-    # 3. MODELO CNN (Clasificación de Imágenes)
-    # ----------------------------------------
   cnn_image:
     image: infra-cnn_image:latest
     container_name: cnn_image
@@ -98,20 +89,16 @@ services:
       restart_policy:
         condition: on-failure
 
-  # ----------------------------------------
-  # 4. LLM CONNECTOR (El Agente/Backend)
-  # ----------------------------------------
+
   llm_connector:
-    image: infra-llm_connector:latest # Imagen del backend LLM
+    image: infra-llm_connector:latest
     container_name: llm_connector
     build:
       context: ../llm_connector
       dockerfile: Dockerfile
     environment:
-      # URLs de APIs internas (usa los nombres de servicio)
       ML_API_URL: http://sklearn_model:8000
       CNN_API_URL: http://cnn_image:8000
-      # Tu clave de API (debe ser pasada de forma segura)
       GEMINI_API_KEY: ${GEMINI_API_KEY} 
     networks:
       - ml_network
@@ -120,33 +107,29 @@ services:
       restart_policy:
         condition: on-failure
       
-  # ----------------------------------------
-  # 5. FRONTEND (Gradio UI)
-  # ----------------------------------------
   gradio_frontend:
-    image: infra-gradio_frontend:latest # Imagen del frontend
+    image: infra-gradio_frontend:latest
     container_name: gradio_frontend
     build:
       context: ../gradio_frontend
       dockerfile: Dockerfile
     environment:
-      # URL de la API del LLM Connector
       LLM_API_URL: http://llm_connector:8000
+      ML_API_URL: http://sklearn_model:8000
+      CNN_API_URL: http://cnn_image:8000
     ports:
-      - "80:7860" # Publica el puerto 7860 de Gradio en el puerto 80 del host
+      - "80:7860"
     networks:
       - ml_network
-    # IMPORTANTE: Asegúrate de que el puerto 7860 esté expuesto en el Dockerfile de Gradio
+    
     deploy:
       replicas: 1
       placement:
-        constraints: [node.role == manager] # Para asegurar que siempre esté accesible
+        constraints: [node.role == manager]
       restart_policy:
         condition: on-failure
 
-  # ----------------------------------------
-  # VOLÚMENES Y REDES
-  # ----------------------------------------
+
 volumes:
   mlflow_postgres_data:
     driver: local
@@ -155,4 +138,4 @@ volumes:
 
 networks:
   ml_network:
-    driver: overlay # Crucial para la comunicación entre servicios en diferentes nodos
+    driver: overlay

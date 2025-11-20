@@ -13,7 +13,7 @@ import logging
 import json
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from config import MLFLOW_TRACKING_URI, MODEL_NAME, FEATURE_COLUMNS
+from config import MLFLOW_TRACKING_URI, MODEL_NAME, FEATURE_COLUMNS, EXPERIMENT_NAME
 from mlflow.exceptions import MlflowException
 
 logging.basicConfig(level=logging.INFO, format='{"time": "%(asctime)s", "level": "%(levelname)s", "service": "ml_classic", "message": %(message)s}')
@@ -21,6 +21,7 @@ logging.basicConfig(level=logging.INFO, format='{"time": "%(asctime)s", "level":
 app = FastAPI(title="Sklearn Model Prediction Service", version="1.0.0")
 
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+mlflow.set_experiment(EXPERIMENT_NAME)
 model = None
 LOADED_MODEL = None
 
@@ -46,25 +47,32 @@ def make_prediction(features: Features) -> dict:
 
     LOADED_MODEL = load_model()
 
-    print("features: ", features)
-    print("features.feature_list: ", features.feature_list)
-    print("LOADED MODEL: ", LOADED_MODEL)
+    with mlflow.start_run(run_name="request_to_ML_Model_From_Gradio"):
 
-    if LOADED_MODEL is None:
-        raise HTTPException(status_code=503, detail="Modelo ML no inicializado.")
-    
-    # Convertir las características Pydantic en formato DataFrame (requerido por el pipeline)
-    input_data = pd.DataFrame([features.feature_list], columns=FEATURE_COLUMNS) 
+        print("features: ", features)
+        print("features.feature_list: ", features.feature_list)
+        print("LOADED MODEL: ", LOADED_MODEL)
 
+        if LOADED_MODEL is None:
+            raise HTTPException(status_code=503, detail="Modelo ML no inicializado.")
+        
+        mlflow.log_param("model", LOADED_MODEL.__class__.__name__)
+        mlflow.log_param("features", features.feature_list)
+        
+        # Convertir las características Pydantic en formato DataFrame (requerido por el pipeline)
+        input_data = pd.DataFrame([features.feature_list], columns=FEATURE_COLUMNS) 
 
+        logging.info(json.dumps({"event": "prediction_request", "features": input_data.iloc[0].tolist()}))
 
-    logging.info(json.dumps({"event": "prediction_request", "features": input_data.iloc[0].tolist()}))
-    try:
-        preds = LOADED_MODEL.predict(input_data)
+        mlflow.log_param("features", input_data.iloc[0].tolist())
+        try:
+            preds = LOADED_MODEL.predict(input_data)
 
-        logging.info(json.dumps({"event": "prediction_success", "result": preds.tolist()}))
-    except Exception as e:
-        logging.error(json.dumps({"event": "prediction_error", "details": str(e)}))
-        raise HTTPException(status_code=500, detail=f"Error durante la predicción: {e}")
+            mlflow.log_metric("prediction", preds)
+
+            logging.info(json.dumps({"event": "prediction_success", "result": preds.tolist()}))
+        except Exception as e:
+            logging.error(json.dumps({"event": "prediction_error", "details": str(e)}))
+            raise HTTPException(status_code=500, detail=f"Error durante la predicción: {e}")
     
     return {"predictions": preds.tolist()}
