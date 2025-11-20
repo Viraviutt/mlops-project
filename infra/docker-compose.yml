@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Servicio de Registro MLOps
   mlflow_server:
@@ -7,36 +5,44 @@ services:
     container_name: mlflow_server
     ports:
       - "5000:5000"
-    environment:
-      # Usamos el path del contenedor para el volumen
-      - MLFLOW_TRACKING_URI=http://mlflow_server:5000
+    env_file:
+      - ../.env
     volumes:
       # Volúmenes persistentes para el registro y artefactos
-      - ./mlflow_data:/mlflow/mlruns
+      - mlflow_data_volume:/mlflow/mlruns
     networks:
       - mlops_net
+    command: >
+      mlflow server
+      --host 0.0.0.0 
+      --port 5000 
+      --backend-store-uri sqlite:////mlflow/mlruns/mlflow.db
+      --artifacts-destination /mlflow/mlruns/artifacts
+      --allowed-hosts "*"
 
   # 1. Conector LLM
-  connector_llm:
-    build: ./connector_llm
-    container_name: connector_llm
+  llm_connector:
+    build: ../llm_connector
+    container_name: llm_connector
     ports:
       - "8001:8000"
     environment:
       - PORT=8000
+    env_file:
+      - ../.env
     networks:
       - mlops_net
 
   # 2. Modelo ML Clásico
-  ml_classic_model:
-    build: ./ml_classic_model
-    container_name: ml_classic_model
+  sklearn_model:
+    build: ../sklearn_model
+    container_name: sklearn_model
     ports:
       - "8002:8000"
     environment:
       - PORT=8000
-      # Conexión al servidor de MLflow
-      - MLFLOW_TRACKING_URI=http://mlflow_server:5000
+    env_file:
+      - ../.env
     depends_on:
       - mlflow_server
     volumes:
@@ -46,33 +52,36 @@ services:
       - mlops_net
 
   # 3. Red Neuronal Convolucional (CNN)
-  cnn_model:
-    build: ./cnn_model
-    container_name: cnn_model
+  cnn_image:
+    build: ../cnn_image
+    container_name: cnn_image
     ports:
       - "8003:8000"
     environment:
       - PORT=8000
+    env_file:
+      - ../.env
     networks:
       - mlops_net
 
   # 4. Aplicación Gradio (Frontend)
   gradio_frontend:
-    build: ./gradio_frontend
+    build: ../gradio_frontend
     container_name: gradio_frontend
     ports:
       - "8000:7860"
-    environment:
-      - LLM_API_URL=http://connector_llm:8000
-      - ML_API_URL=http://ml_classic_model:8000
-      - CNN_API_URL=http://cnn_model:8000
+    env_file:
+      - ../.env
     depends_on:
-      - connector_llm
-      - ml_classic_model
-      - cnn_model
+      - llm_connector
+      - sklearn_model
+      - cnn_image
     networks:
       - mlops_net
 
 networks:
   mlops_net:
     driver: bridge
+
+volumes:
+  mlflow_data_volume:
