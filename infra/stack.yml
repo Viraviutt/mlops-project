@@ -1,0 +1,141 @@
+version: '3.8'
+
+services:
+
+  mlflow_db:
+    image: postgres:15-alpine
+    container_name: mlflow_postgres
+    environment:
+      POSTGRES_USER: mlflow_user
+      POSTGRES_PASSWORD: mlflow_password
+      POSTGRES_DB: mlflow_db
+    volumes:
+      - mlflow_postgres_data:/var/lib/postgresql/data
+    networks:
+      - ml_network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  mlflow_server:
+      image: ubuntu/mlflow:2.1.1_1.0-22.04
+      container_name: mlflow_server
+        
+      command: >
+        mlflow server
+        --backend-store-uri postgresql://mlflow_user:mlflow_password@mlflow_db:5432/mlflow_db
+        --default-artifact-root /mlflow_artifacts
+        --host 0.0.0.0
+      
+      ports:
+        - "5000:5000"
+        
+      environment:
+        MLFLOW_TRACKING_URI: http://mlflow_server:5000
+        
+      volumes:
+        - mlflow_artifacts:/mlflow_artifacts
+        
+      depends_on:
+        - mlflow_db
+      networks:
+        - ml_network
+      deploy:
+        replicas: 1
+        restart_policy:
+          condition: on-failure
+
+  sklearn_model:
+    image: infra-sklearn_model:latest
+    container_name: sklearn_model
+    build:
+      context: ../sklearn_model
+      dockerfile: Dockerfile
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow_server:5000
+      MLFLOW_MODEL_URI: models:/whitewine_random_forest_model/latest
+    networks:
+      - ml_network
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+
+  cnn_image:
+    image: infra-cnn_image:latest
+    container_name: cnn_image
+    build:
+      context: ../cnn_image
+      dockerfile: Dockerfile
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow_server:5000
+      HF_TOKEN: ${HF_TOKEN}
+    networks:
+      - ml_network
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+      resources:
+        limits:
+          memory: 2048M
+        reservations:
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+
+
+  llm_connector:
+    image: infra-llm_connector:latest
+    container_name: llm_connector
+    build:
+      context: ../llm_connector
+      dockerfile: Dockerfile
+    environment:
+      ML_API_URL: http://sklearn_model:8000
+      CNN_API_URL: http://cnn_image:8000
+      GEMINI_API_KEY: ${GEMINI_API_KEY} 
+    networks:
+      - ml_network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      
+  gradio_frontend:
+    image: infra-gradio_frontend:latest
+    container_name: gradio_frontend
+    build:
+      context: ../gradio_frontend
+      dockerfile: Dockerfile
+    environment:
+      LLM_API_URL: http://llm_connector:8000
+      ML_API_URL: http://sklearn_model:8000
+      CNN_API_URL: http://cnn_image:8000
+    ports:
+      - "80:7860"
+    networks:
+      - ml_network
+    
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+
+
+volumes:
+  mlflow_postgres_data:
+    driver: local
+  mlflow_artifacts:
+    driver: local
+
+networks:
+  ml_network:
+    driver: overlay

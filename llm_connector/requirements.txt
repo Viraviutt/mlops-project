@@ -1,3 +1,10 @@
-fastapi==0.95.2
-uvicorn[standard]==0.22.0
-pydantic==1.10.12
+fastapi==0.121.2
+uvicorn==0.38.0
+requests==2.32.5
+Pillow==11.3.0
+pydantic==2.11.10
+openai==2.8.1
+python-dotenv==1.2.1
+numpy==2.2.6
+PyMuPDF==1.26.6
+docx2txt==0.9

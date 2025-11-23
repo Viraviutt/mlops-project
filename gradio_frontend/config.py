@@ -1,18 +1,22 @@
 """
     Archivo: config.py
-    Propósito: Configuración del servicio CNN
+    Propósito: Configuración del servicio frontend de gradio
     Autor: Victor Villarreal, Cristian Garcia
     Fecha: 2025-11-18
 """
 
-import os
-import numpy as np
-from dotenv import load_dotenv
+FEATURE_COLUMNS = [
+    "fixed acidity", "volatile acidity", "citric acid", 
+    "residual sugar", "chlorides", "free sulfur dioxide", 
+    "total sulfur dioxide", "density", "pH", "sulphates", "alcohol"
+]
 
-load_dotenv()
-
-HF_TOKEN = os.getenv("HF_TOKEN")
-HF_CNN_MODEL = "dima806/facial_emotions_image_detection"
+INITIAL_VALUES = {
+    "fixed acidity": 7.0, "volatile acidity": 0.27, "citric acid": 0.36, 
+    "residual sugar": 20.7, "chlorides": 0.045, "free sulfur dioxide": 45.0, 
+    "total sulfur dioxide": 170.0, "density": 1.001, "pH": 3.0, 
+    "sulphates": 0.45, "alcohol": 8.8
+}
 
 LIMITATIONS = """
 Limitaciones del modelo:
@@ -48,19 +52,3 @@ Limitaciones del modelo:
 
 - No debe usarse para evaluar emociones en personas con trastornos de ansiedad.
 """
-
-KERNEL_EDGES = np.array(
-    [
-        [-1,-1,-1],
-        [-1,8,-1],
-        [-1,-1,-1]
-    ]
-)
-
-KERNEL_SHARPEN = np.array(
-    [
-        [0,-1,0],
-        [-1,5,-1],
-        [0,-1,0]
-    ]
-)

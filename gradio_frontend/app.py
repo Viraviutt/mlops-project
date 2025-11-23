@@ -1,119 +1,179 @@
+"""
+    Archivo: app.py
+    Propósito: Interfaz grafica realizada en gradio
+    Autor: Victor Villarreal, Cristian Garcia
+    Fecha: 2025-11-18
+"""
+
+
 import gradio as gr
+import requests
 import os
+import numpy as np
+import base64
+import io
 from dotenv import load_dotenv
-from llm_connector.app.utils import chat
-from utils.classify import classify_image
-from utils.predict_wine_config import FEATURE_COLUMNS, INITIAL_VALUES
-from utils.predict_wine_quality import predict_wine_quality
-from utils.predict_wine_quality_from_csv import predict_from_csv
+from config import FEATURE_COLUMNS, INITIAL_VALUES, LIMITATIONS
+from PIL import Image
 
 load_dotenv()
 
+LLM_API_URL = os.getenv("LLM_API_URL", "http://localhost:8001")
+ML_API_URL = os.getenv("ML_API_URL", "http://localhost:8002")
+CNN_API_URL = os.getenv("CNN_API_URL", "http://localhost:8003")
+
+def chat_with_llm(message: dict, history) -> str:
+    """Realiza una consulta al modelo LLM para recibir una respuesta."""
+    try:
+        serialized_file = None
+        if isinstance(message["files"], str) and os.path.exists(message["files"]):
+            file_path = message["files"]
+                
+                
+            if file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
+                try:
+                    img = Image.open(file_path)
+                    img_array = np.array(img)
+                    
+                    bytes_io = io.BytesIO()
+                    np.save(bytes_io, img_array)
+                    
+                    b64_data = base64.b64encode(bytes_io.getvalue()).decode('utf-8')
+                    
+                    serialized_file = {
+                        "filename": os.path.basename(file_path),
+                        "data_b64": b64_data,
+                        "type": "image/numpy"
+                    }
+                
+                except Exception as e:
+                    print(f"ERROR: No se pudo serializar la imagen a NumPy/Base64: {e}")
+    
+
+        print("Iniciando función de chat... mensaje: ", message, "history: ", history)
+
+        response = requests.post(
+            f"{LLM_API_URL}/ask",
+            json={
+                  "text": message["text"],
+                  "history": history,
+                  "file": serialized_file,
+                 },
+            timeout=10
+        )
+        response.raise_for_status()
+        return response.json().get("answer", "Error: No se pudo obtener respuesta del LLM.")
+    except requests.exceptions.RequestException as e:
+        return f"Error de conexión con el LLM: {e}"
+
+def validate_ml_data(*args):
+    """Llama al modelo de ML Clásico."""
+    try:
+        payload = {
+            "feature_list": list(args)
+        }
+        
+        
+        response = requests.post(
+            f"{ML_API_URL}/predict",
+            json=payload,
+            timeout=10
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        result = (
+            f"**Predicción del Modelo ML Clásico (Wine Quality)**\n"
+            f"Calidad predicha: **{data['predictions'][0]}**\n"
+        )
+        return result
+    except requests.exceptions.RequestException as e:
+        return f"Error de conexión o datos con el Modelo ML: {e}"
+    except Exception as e:
+        return f"Error inesperado: {e}"
+
+def classify_image_cnn(image_path):
+    """Llama al modelo CNN."""
+    if image_path is None:
+        return "Por favor, sube una imagen."
+    
+
+        
+    try:
+        # Gradio pasa el path temporal del archivo
+        with open(image_path, "rb") as f:
+            files = {'file': (os.path.basename(image_path), f, 'image/jpeg')}
+            
+            response = requests.post(
+                f"{CNN_API_URL}/classify",
+                files=files,
+                timeout=20 # Dar más tiempo para el procesamiento de la CNN
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            result = (
+                f"**Clasificación CNN**\n"
+                f"Clase Predicha: **{data['prediction']}**\n"
+                f"Confianza: {data['confidence']:.2f}\n"
+            )
+            return result
+    except requests.exceptions.RequestException as e:
+        return f"Error de conexión con la CNN: {e}"
+    except Exception as e:
+        return f"Error inesperado: {e}"
 
 
-
-with gr.Blocks(
-    title="App",
+llm_interface = gr.ChatInterface(
+    fn=chat_with_llm,
+    type="messages",
+    multimodal=True,
+    stop_btn=True,
     theme=gr.themes.Ocean(),
-) as app:
-    gr.Markdown(
-        f"""
-        # Prueba diferentes modelos de inteligencia artificial para diferentes tareas.
-        """
+    submit_btn=True,
+    save_history=True,
+    autoscroll=True,
+    title="LLM Connector",
+    description="Chatea con el LLM para obtener respuestas y contexto."
+)
+
+input_components_single = []
+for feature in FEATURE_COLUMNS:
+    default_value = INITIAL_VALUES.get(feature, 0.5) 
+    input_components_single.append(
+        gr.Number(
+            label=f"{feature} (g/dm³ o valor correspondiente)", 
+            value=default_value
+        )
     )
 
-    with gr.Tab("Chatea con el Chatbot IA sobre lo que quieras."):
-        chatbot = gr.Chatbot(type="messages", height=500)
+ml_interface = gr.Interface(
+    fn=validate_ml_data,
+    inputs=input_components_single,
+    theme=gr.themes.Ocean(),
+    outputs="markdown",
+    title="Validación ML Clásico (Clasificador Vino)",
+    description="Ingresa las características del vino para obtener su calidad."
+)
 
-        chat_interface = gr.ChatInterface(
-            chat, 
-            chatbot=chatbot,
-            type="messages", 
-            title="Chat con Modelos de IA", 
-            multimodal=True,
-            save_history=True,
-            autoscroll=True,
-            stop_btn=True
-        )
+cnn_interface = gr.Interface(
+    fn=classify_image_cnn,
+    inputs=gr.Image(type="filepath", label="Sube una imagen (Rostro de una persona)"),
+    theme=gr.themes.Ocean(),
+    outputs="markdown",
+    title="Clasificación Visual CNN",
+    description=f"Sube una imagen para clasificación. \nNota: {LIMITATIONS}"
+)
 
-    with gr.Tab("IA que procesa archivos (predice calidad del vino)"):
-        # Componentes de entrada dinámicos (11 números)
-        input_components_single = []
-        for feature in FEATURE_COLUMNS:
-            default_value = INITIAL_VALUES.get(feature, 0.5) 
-            input_components_single.append(
-                gr.Number(
-                    label=f"{feature} (g/dm³ o valor correspondiente)", 
-                    value=default_value
-                )
-            )
+app = gr.TabbedInterface(
+    [llm_interface, ml_interface, cnn_interface],
+    ["LLM Chat", "ML Clásico", "Clasificación CNN"],
+    title="Pipeline MLOps (LLM + ML + CNN)",
+    theme=gr.themes.Ocean(),
+)
 
-        # Botón y outputs
-        predict_btn_single = gr.Button("Predecir Calidad", variant="primary")
-        output_components_single = [
-            gr.Textbox(label="Resultado de la Predicción", key="prediction_output"),
-            gr.Textbox(label="Insight de Calidad", key="insight_output"),
-        ]
-        
-        #Conexión de la función al botón
-        predict_btn_single.click(
-            fn=predict_wine_quality,
-            inputs=input_components_single,
-            outputs=output_components_single
-        )
-
-    with gr.Tab("Predicción por Lote (CSV)"):
-        gr.Markdown(
-            """
-            Sube un archivo **CSV** que contenga las 11 columnas de características. 
-            El modelo ejecutará la predicción en todas las filas y devolverá la calidad predicha (`Predicted_Quality`).
-            """
-        )
-        
-        # Entrada CSV
-        csv_input = gr.File(
-            label="Cargar Archivo CSV", 
-            file_types=[".csv"]
-        )
-
-        # Salidas CSV
-        summary_output = gr.Textbox(label="Promedio de Calidad del Lote", interactive=False)
-        dataframe_output = gr.Dataframe(
-            label="Tabla de Resultados", 
-            headers=FEATURE_COLUMNS + ['Predicted_Quality'],
-            interactive=False
-        )
-
-        # Botón y Conexión de la función
-        predict_btn_batch = gr.Button("Predecir Lote CSV", variant="primary")
-        
-        predict_btn_batch.click(
-            fn=predict_from_csv,
-            inputs=csv_input,
-            outputs=[summary_output, dataframe_output]
-        )
-
-    with gr.Tab("IA que procesa imágenes (Clasificación de Imágenes)"):
-        gr.Markdown(
-            """
-            Sube una imagen y el modelo clasificará el contenido de la imagen.
-            """
-        )
-        
-        # Entrada de imagen
-        image_input = gr.Image(label="Cargar Imagen")
-
-        # Salidas de imagen
-        image_label_output = gr.Textbox(label="Etiqueta Predicha", key="image_label_output")
-        image_confidence_output = gr.Textbox(label="Confianza de la Predicción", key="image_confidence_output")
-
-        # Botón y Conexión de la función
-        classify_btn = gr.Button("Clasificar Imagen", variant="primary")
-        
-        classify_btn.click(
-            fn=classify_image,
-            inputs=image_input,
-            outputs=[image_label_output, image_confidence_output]
-        )
-
-app.launch()
+if __name__ == "__main__":
+    # La API de Gradio se lanza en el puerto 7860
+    app.launch(server_name="0.0.0.0", server_port=7860)
